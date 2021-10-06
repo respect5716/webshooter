@@ -8,5 +8,7 @@ setup(
     url = 'https://github.com/respect5716/symbolic-crawler',
     author = 'Yoon Yong Sun',
     autorh_email = 'respect5716@gmail.com',
-    python_requires = '>=3.6'
+    python_requires = '>=3.6',
+    packages = ["symcrawl"],
+    install_requires = [],
 )
