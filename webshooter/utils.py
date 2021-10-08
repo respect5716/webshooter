@@ -1,11 +1,24 @@
 import requests
-from bs4 import BeautifulSoup
+from selenium import webdriver
 
-from .const import USER_AGENT
+from const import HEADERS
 
-def url_to_soup(url):
-    headers={'User-Agent': USER_AGENT}
-    req = requests.get(url, headers=headers)
-    html = req.text
-    soup = BeautifulSoup(html, 'html.parser')
-    return soup
+
+def load_webdriver():
+    options = webdriver.ChromeOptions()
+    options.add_argument('--no-sandbox')
+    options.add_argument('--headless')
+    options.add_argument('--disable-dev-shm-usage')
+    driver = webdriver.Chrome(options=options)
+    return driver
+
+def error_message(error_type, url):
+    print(f'ERROR | {error_type} | {url}')
+    
+def return_exception(return_type):
+    if return_type == 'json':
+        return {}
+    elif return_type == 'html':
+        return '<html></html>'
+    else:
+        return ''

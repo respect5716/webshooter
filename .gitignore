@@ -1,3 +1,4 @@
 .devcontainer
 .DS_STORE
-symcrawl/__pycache__
+webshooter/__pycache__
+notebook/.ipynb_checkpoints
