@@ -5,7 +5,7 @@ from tqdm.auto import tqdm
 from selenium import webdriver
 
 from dataclasses import dataclass
-from typing import Optional, Callable, List, Dict, Any
+from typing import Optional, Callable, Union, List, Dict, Any
 
 from .request import static_request
 
@@ -40,7 +40,7 @@ class AttributeDict(Dict):
         
         
 class Scraper(object):
-    multiprocess_funcs = ['request', 'parse']    
+    multiprocess_funcs = ['request', 'parse']
     
     def __init__(self, progbar: bool):
         self.progbar = progbar
@@ -65,6 +65,7 @@ class Scraper(object):
         self.infos = []
         self.table = None
         self.data = None
+        
         
     def set_vars(self, variables: Dict):
         for k, v in variables.items():
@@ -94,13 +95,34 @@ class Scraper(object):
         return decorator
     
     
-    def validation(self):
+    def check_funcs(self):
         required = ['browse', 'request', 'parse', 'merge', 'postprocess']
         for req in required:
             if req not in self.funcs.keys():
                 raise Exception(f'function {req} is not registered')
-        print('All functions are registered!')
+        logging.info('All functions are registered!')
     
+    
+    def check_urls(self, urls: Union[str, List[str], Dict]) -> List[Dict]:
+        if type(urls) == str:
+            return [{'url': urls}]
+        elif type(urls) == dict:
+            if 'url' not in urls:
+                raise Exception("key 'url' should be in output of function 'browse'")
+            return [urls]
+            
+        elif type(urls) == list:
+            if type(urls[0]) == str:
+                return [{'url':url} for url in urls]
+            elif type(urls[0]) == dict:
+                if 'url' not in urls[0]:
+                    raise Exception("key 'url' should be in output of function 'browse'")
+                return urls
+                    
+        
+        raise Exception('type of urls is not correct')
+        return 
+        
     
     def browse(self):
         logging.info('Browsing started')
@@ -112,17 +134,18 @@ class Scraper(object):
     def request(self):
         logging.info('Requesting started')
         fn = self.funcs['request']
+        
         if fn.multiprocess:
             ray_fn = ray.remote(fn.fn)
             objs = [ray_fn.remote(url) for url in self.urls]
-            objs = tqdm(objs, desc='request', display=self.progbar)
+            objs = tqdm(objs, desc='request') if self.progbar else objs
             for obj in objs:
                 html = ray.get(obj)
                 html = make_list(html)
                 self.htmls += html
         
         else:
-            urls = tqdm(self.urls, desc='request', display=self.progbar)
+            urls = tqdm(self.urls, desc='request') if self.progbar else self.urls
             for url in urls:
                 html = fn(url)
                 html = make_list(html)
@@ -133,22 +156,18 @@ class Scraper(object):
     def parse(self):
         logging.info('Parsing started')
         fn = self.funcs['parse']
+        
         if fn.multiprocess:
             ray_fn = ray.remote(fn.fn)
-            htmls = tqdm(self.htmls, desc='parse', display=self.progbar)
-            for html in htmls:
-                info = ray.get(ray_fn.remote(html))
+            objs = [ray_fn.remote(html) for html in self.htmls]
+            objs = tqdm(objs, desc='parse') if self.progbar else objs
+            for obj in objs:
+                info = ray.get(obj)
                 info = make_list(info)
                 self.infos += info
-#             objs = [ray_fn.remote(html) for html in self.htmls]
-#             objs = tqdm(objs, desc='parse', display=self.progbar)
-#             for obj in objs:
-#                 info = ray.get(obj)
-#                 info = make_list(info)
-#                 self.infos += info
         
         else:
-            htmls = tqdm(self.htmls, desc='parse', display=self.progbar)
+            htmls = tqdm(self.htmls, desc='parse') if self.progbar else self.htmls
             for html in htmls:
                 info = fn(html)
                 info = make_list(info)
@@ -169,7 +188,7 @@ class Scraper(object):
     
     
     def run(self):
-        self.validation()
+        self.check_funcs()
         if self.multiprocess:
             ray.init()
         
