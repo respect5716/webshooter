@@ -24,3 +24,8 @@ pip install git+https://github.com/respect5716/webshooter.git
 docker build -t webshooter:latest .
 docker run -it --name webshooter -v $PWD:/app -p 8080:8080 webshooter:latest bash
 ```
+
+## Test
+```
+python -m pytest tests
+```

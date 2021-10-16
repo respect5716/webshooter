@@ -65,7 +65,9 @@ class Scraper(object):
         self.infos = []
         self.table = None
         self.data = None
-        
+    
+    def set_var(self, k, v):
+        self.v[k] = v
         
     def set_vars(self, variables: Dict):
         for k, v in variables.items():
@@ -103,31 +105,32 @@ class Scraper(object):
         logging.info('All functions are registered!')
     
     
-    def check_urls(self, urls: Union[str, List[str], Dict]) -> List[Dict]:
-        if type(urls) == str:
-            return [{'url': urls}]
-        elif type(urls) == dict:
-            if 'url' not in urls:
-                raise Exception("key 'url' should be in output of function 'browse'")
-            return [urls]
+    def check_res(self, res: Union[str, Dict, List[str], List[Dict]], required_key: str) -> List[Dict]:
+        if type(res) == str:
+            return [{required_key: res}]
+        
+        elif type(res) == dict:
+            if required_key and required_key not in res:
+                raise Exception(f'{required_key} is required!')
+            return [res]
             
-        elif type(urls) == list:
-            if type(urls[0]) == str:
-                return [{'url':url} for url in urls]
-            elif type(urls[0]) == dict:
-                if 'url' not in urls[0]:
-                    raise Exception("key 'url' should be in output of function 'browse'")
-                return urls
-                    
+        elif type(res) == list:
+            if type(res[0]) == str:
+                return [{required_key: r} for r in res]
+                
+            elif type(res[0]) == dict:
+                if required_key and required_key not in res[0]:
+                    raise Exception(f'{required_key} is required!')
+                return res
         
-        raise Exception('type of urls is not correct')
-        return 
-        
+        raise Exception('result should be Union[str, Dict, List[str], List[Dict]]')
+
     
     def browse(self):
         logging.info('Browsing started')
         fn = self.funcs['browse']
-        self.urls = fn()
+        urls = fn()
+        self.urls = self.check_res(urls, 'url')
         logging.info('Browsing finished')
         
         
@@ -135,21 +138,24 @@ class Scraper(object):
         logging.info('Requesting started')
         fn = self.funcs['request']
         
+        htmls = []
         if fn.multiprocess:
             ray_fn = ray.remote(fn.fn)
-            objs = [ray_fn.remote(url) for url in self.urls]
+            objs = [ray_fn.remote(url['url']) for url in self.urls]
             objs = tqdm(objs, desc='request') if self.progbar else objs
             for obj in objs:
                 html = ray.get(obj)
-                html = make_list(html)
-                self.htmls += html
+                html = self.check_res(html, 'html')
+                htmls += html
         
         else:
             urls = tqdm(self.urls, desc='request') if self.progbar else self.urls
             for url in urls:
-                html = fn(url)
-                html = make_list(html)
-                self.htmls += html
+                html = fn(url['url'])
+                html = self.check_res(html, 'html')
+                htmls += html
+        
+        self.htmls = htmls    
         logging.info('Requesting finished')
             
     
@@ -157,21 +163,24 @@ class Scraper(object):
         logging.info('Parsing started')
         fn = self.funcs['parse']
         
+        infos = []
         if fn.multiprocess:
             ray_fn = ray.remote(fn.fn)
-            objs = [ray_fn.remote(html) for html in self.htmls]
+            objs = [ray_fn.remote(html['html']) for html in self.htmls]
             objs = tqdm(objs, desc='parse') if self.progbar else objs
             for obj in objs:
                 info = ray.get(obj)
-                info = make_list(info)
-                self.infos += info
+                info = self.check_res(info, None)
+                infos += info
         
         else:
             htmls = tqdm(self.htmls, desc='parse') if self.progbar else self.htmls
             for html in htmls:
-                info = fn(html)
-                info = make_list(info)
-                self.infos += info
+                info = fn(html['html'])
+                info = self.check_res(info, None)
+                infos += info
+                
+        self.infos = infos
         logging.info('Parsing finished')
         
     
