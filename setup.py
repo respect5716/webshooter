@@ -10,5 +10,12 @@ setup(
     autorh_email = 'respect5716@gmail.com',
     python_requires = '>=3.6',
     packages = ["webshooter"],
-    install_requires = [],
+    install_requires = [
+        "beautifulsoup4",
+        "selenium",
+        "pandas",
+        "tqdm",
+        "requests",
+        "ray",
+    ],
 )
