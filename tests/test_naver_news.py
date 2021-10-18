@@ -8,7 +8,6 @@ from newspaper import Article
 
 from webshooter import StaticScraper, url_to_soup
 
-
 import logging
 logging.root.setLevel(logging.INFO)
 
@@ -46,10 +45,12 @@ def browse():
     urls = []
     for category in list_app.v.categories:
         max_page = find_max_page(category)
-        urls += [get_page_url(category, list_app.v.date, p) for p in range(1, max_page+1)]
+        for p in range(1, max_page+1):
+            url = get_page_url(category, list_app.v.date, p)
+            urls.append({'url': url, 'category': category})
     return urls
 
-@list_app.register('parse', multiprocess=True)
+@list_app.register('parse', multiprocess=False)
 def parse(html):
     soup = BeautifulSoup(html, 'html.parser')
     articles = soup.select('div.list_body ul.type02 a')
@@ -78,7 +79,7 @@ def postprocess(table):
 
 def test_naver_news():
     meta = list_app.run()
-    meta = meta.sample(100).reset_index(drop=True)
+    meta = meta.sample(10).reset_index(drop=True)
     article_app.set_var('meta', meta)
     
     data = article_app.run()

@@ -8,11 +8,20 @@ from dataclasses import dataclass
 from typing import Optional, Callable, Union, List, Dict, Any
 
 from .request import static_request
-from .utils import make_list, Func, AttributeDict
+from .utils import make_list, Func, AttributeDict, Item
 
 
 def default_merge(infos):
-    return pd.DataFrame(infos)
+    table = []
+    for info in infos:
+        url = info.parent.parent.attr
+        html = info.parent.attr
+        info = info.attr 
+        table.append({**url, **html, **info})
+        
+    table = pd.DataFrame(table)
+    return table
+
 
 def default_postprocess(table):
     return table
@@ -47,6 +56,7 @@ class Scraper(object):
     
     def set_var(self, k, v):
         self.v[k] = v
+        
         
     def set_vars(self, variables: Dict):
         for k, v in variables.items():
@@ -84,7 +94,7 @@ class Scraper(object):
         logging.info('All functions are registered!')
     
     
-    def check_res(self, res: Union[str, Dict, List[str], List[Dict]], required_key: str) -> List[Dict]:
+    def normalize_res(self, res: Union[str, Dict, List[str], List[Dict]], required_key: str) -> List[Dict]:
         if type(res) == str:
             return [{required_key: res}]
         
@@ -109,7 +119,11 @@ class Scraper(object):
         logging.info('Browsing started')
         fn = self.funcs['browse']
         urls = fn()
-        self.urls = self.check_res(urls, 'url')
+        urls = self.normalize_res(urls, 'url')
+        
+        for url in urls:
+            self.urls.append(Item(url, 'url', None))
+        
         logging.info('Browsing finished')
         
         
@@ -117,24 +131,24 @@ class Scraper(object):
         logging.info('Requesting started')
         fn = self.funcs['request']
         
-        htmls = []
         if fn.multiprocess:
             ray_fn = ray.remote(fn.fn)
-            objs = [ray_fn.remote(url['url']) for url in self.urls]
+            objs = [ray_fn.remote(url.val) for url in self.urls]
             objs = tqdm(objs, desc='request') if self.progbar else objs
-            for obj in objs:
-                html = ray.get(obj)
-                html = self.check_res(html, 'html')
-                htmls += html
+            for url, obj in zip(self.urls, objs):
+                htmls = ray.get(obj)
+                htmls = self.normalize_res(htmls, 'html')
+                for html in htmls:
+                    self.htmls.append(Item(html, 'html', url))
         
         else:
             urls = tqdm(self.urls, desc='request') if self.progbar else self.urls
             for url in urls:
-                html = fn(url['url'])
-                html = self.check_res(html, 'html')
-                htmls += html
+                htmls = fn(url.val)
+                htmls = self.normalize_res(htmls, 'html')
+                for html in htmls:
+                    self.htmls.append(Item(html, 'html', url))
         
-        self.htmls = htmls    
         logging.info('Requesting finished')
             
     
@@ -142,24 +156,24 @@ class Scraper(object):
         logging.info('Parsing started')
         fn = self.funcs['parse']
         
-        infos = []
         if fn.multiprocess:
             ray_fn = ray.remote(fn.fn)
-            objs = [ray_fn.remote(html['html']) for html in self.htmls]
+            objs = [ray_fn.remote(html.val) for html in self.htmls]
             objs = tqdm(objs, desc='parse') if self.progbar else objs
-            for obj in objs:
-                info = ray.get(obj)
-                info = self.check_res(info, None)
-                infos += info
+            for html, obj in zip(self.htmls, objs):
+                infos = ray.get(obj)
+                infos = self.normalize_res(infos, None)
+                for info in infos:
+                    self.infos.append(Item(info, 'info', html))
         
         else:
             htmls = tqdm(self.htmls, desc='parse') if self.progbar else self.htmls
             for html in htmls:
-                info = fn(html['html'])
-                info = self.check_res(info, None)
-                infos += info
-                
-        self.infos = infos
+                infos = fn(html.val)
+                infos = self.normalize_res(infos, None)
+                for info in infos:
+                    self.infos.append(Item(info, 'info', html))
+
         logging.info('Parsing finished')
         
     
@@ -179,17 +193,57 @@ class Scraper(object):
         self.check_funcs()
         if self.multiprocess:
             ray.init()
+        try:        
+            self.browse()
+            self.request()
+            self.parse()
+            self.merge()
+            self.postprocess()
         
-        self.browse()
-        self.request()
-        self.parse()
-        self.merge()
-        self.postprocess()
-        
-        if self.multiprocess:
-            ray.shutdown()
+        except Exception as e:
+            raise(e)
+            
+        finally:
+            if self.multiprocess:
+                ray.shutdown()
+                
         return self.data
     
+    @classmethod
+    def from_urls(cls, urls: List, progbar=True):
+        app = cls(progbar=progbar)
+        app.urls = urls
+        
+        @app.register('browse')
+        def browse():
+            return app.urls
+        
+        return app
+        
+        
+class StaticScraper(Scraper):
+    def __init__(self, progbar: bool):
+        super().__init__(progbar)
+        self.funcs['request'] = Func(static_request, False)
+        
+    @classmethod
+    def from_urls(cls, urls: List, progbar=True):
+        app = cls(progbar=progbar)
+        app.urls = urls
+        
+        @app.register('browse')
+        def browse():
+            return app.urls
+        
+        return app    
+        
+        
+class DynamicScraper(Scraper):
+    def __init__(self, progbar: bool):
+        super().__init__(progbar)
+        self.load_webdriver()
+        
+        
     @classmethod
     def from_urls(cls, urls: List, progbar=True):
         app = cls(progbar=progbar)
